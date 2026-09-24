@@ -36,12 +36,12 @@ jobs:
           NEXORA_BUILD: ${{ github.run_number }}
         run: |
           export NEXORA_VERSION="${INPUT_VERSION:-${TAG_NAME#v}}"
-          bash scripts/build.sh
+          bash ios/scripts/build.sh
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
           name: Nexora-unsigned-${{ github.run_number }}
-          path: build/Nexora-unsigned.ipa
+          path: ios/build/Nexora-unsigned.ipa
           if-no-files-found: error
           retention-days: 14
