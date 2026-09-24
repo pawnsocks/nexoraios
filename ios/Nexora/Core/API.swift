@@ -7,7 +7,17 @@ enum APIError: LocalizedError {
 }
 @MainActor final class API: ObservableObject {
     static let base = URL(string: "https://nexoradc.duckdns.org")!
-    @Published var account: Account?
+    @Published var account: Account? {
+        didSet {
+            if let account, let data = try? JSONEncoder().encode(account) { UserDefaults.standard.set(data, forKey: "offline-account") }
+        }
+    }
+    var offlineOwner: String? {
+        guard token != nil else { return nil }
+        if let account { return account.id }
+        guard let data = UserDefaults.standard.data(forKey: "offline-account") else { return nil }
+        return (try? JSONDecoder().decode(Account.self, from: data))?.id
+    }
     @Published var token: String? = Keychain.read()
     @Published var release: ReleaseInfo?
     private let session: URLSession = {

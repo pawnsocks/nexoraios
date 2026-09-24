@@ -6,8 +6,10 @@ on:
       version:
         description: "Release version (e.g. 1.0.1)"
         required: true
-        default: "1.0.0"
+        default: "1.1.0"
   push:
+    branches: [main]
+    paths: ["ios/**", ".github/workflows/ios.yml"]
     tags:
       - "v*"
 
@@ -35,7 +37,13 @@ jobs:
           TAG_NAME: ${{ github.ref_name }}
           NEXORA_BUILD: ${{ github.run_number }}
         run: |
-          export NEXORA_VERSION="${INPUT_VERSION:-${TAG_NAME#v}}"
+          if [[ -n "$INPUT_VERSION" ]]; then
+            export NEXORA_VERSION="$INPUT_VERSION"
+          elif [[ "$TAG_NAME" == v* ]]; then
+            export NEXORA_VERSION="${TAG_NAME#v}"
+          else
+            export NEXORA_VERSION="1.1.0"
+          fi
           bash ios/scripts/build.sh
 
       - name: Upload IPA

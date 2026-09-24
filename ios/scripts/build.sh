@@ -6,6 +6,10 @@ build_number="${NEXORA_BUILD:-1}"
 [[ "$release_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo 'Invalid version'; exit 1; }
 [[ "$build_number" =~ ^[0-9]+$ ]] || { echo 'Invalid build'; exit 1; }
 sips -s format png -z 1024 1024 Nexora/Assets.xcassets/Brand.imageset/brand.png --out Nexora/Assets.xcassets/AppIcon.appiconset/AppIcon.png >/dev/null
+queue_checks_dir=$(mktemp -d)
+trap 'rm -rf "$queue_checks_dir"' EXIT
+swiftc Nexora/Core/DownloadQueuePolicy.swift Tests/DownloadQueueChecks.swift -o "$queue_checks_dir/queue-checks"
+"$queue_checks_dir/queue-checks"
 xcodegen generate
 xcodebuild -project Nexora.xcodeproj -scheme Nexora -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO MARKETING_VERSION="$release_version" CURRENT_PROJECT_VERSION="$build_number" build
 mkdir -p build/package/Payload

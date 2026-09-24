@@ -1,11 +1,15 @@
 import SwiftUI
 
 @main struct NexoraApp: App {
+    @UIApplicationDelegateAdaptor(DownloadAppDelegate.self) private var appDelegate
     @StateObject private var api = API()
     @StateObject private var network = Connectivity()
+    @StateObject private var search = SearchState()
+    @StateObject private var downloads = DownloadStore.shared
     var body: some Scene {
         WindowGroup {
-            RootView().environmentObject(api).environmentObject(network)
+            RootView().environmentObject(api).environmentObject(network).environmentObject(search).environmentObject(downloads)
+                .task(id: api.token) { downloads.bind(api) }
                 .preferredColorScheme(.dark).tint(Color(red: 0.97, green: 0.34, blue: 0.48))
         }
     }
@@ -22,8 +26,6 @@ struct RootView: View {
                     Image("Brand").resizable().scaledToFit().frame(width: 130, height: 130).clipShape(RoundedRectangle(cornerRadius: 28))
                     Text("NEXORA").font(.headline).tracking(7)
                 }.transition(.opacity)
-            } else if !network.online {
-                ContentUnavailableView("You’re offline", systemImage: "wifi.slash", description: Text("Reconnect to browse and watch. This server does not currently provide offline downloads."))
             } else if api.token == nil { AuthView() }
             else { MainView() }
         }
@@ -42,6 +44,8 @@ struct MainView: View {
             NavigationStack { HomeView() }.tabItem { Label("Home", systemImage: "house") }
             NavigationStack { SearchView() }.tabItem { Label("Search", systemImage: "magnifyingglass") }
             NavigationStack { LibraryView() }.tabItem { Label("My List", systemImage: "bookmark") }
+            NavigationStack { ProfileView() }.tabItem { Label("Profile", systemImage: "person.crop.circle") }
+            NavigationStack { DownloadsView() }.tabItem { Label("Downloads", systemImage: "arrow.down.circle") }
         }
     }
 }

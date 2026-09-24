@@ -37,4 +37,8 @@ struct Playback: Decodable, Identifiable {
     let has_prev: Bool
     let has_next: Bool
 }
-struct MediaSource: Decodable { let url: String; let content_type: String?; let language: String? }
+struct MediaSource: Decodable { let id: String?; let url: String; let content_type: String?; let language: String? }
+
+struct EpisodeStatus: Decodable, Identifiable { let id: Int; let watched: Bool; let position: Double; let duration: Double? }
+
+struct UndoResponse: Decodable { let ok: Bool; let undo_token: String? }

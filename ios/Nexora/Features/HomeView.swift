@@ -4,6 +4,7 @@ struct HomeView: View {
     @EnvironmentObject var api: API
     @State private var home: HomeData?
     @State private var continuing: [Anime] = []
+    @State private var recommendations: [Anime] = []
     @State private var error: String?
     @State private var day = Date()
     private var days: [Date] { (0..<7).compactMap { Calendar.current.date(byAdding: .day, value: $0, to: Date()) } }
@@ -27,6 +28,10 @@ struct HomeView: View {
                         }.buttonStyle(.plain)
                     }
                     if !continuing.isEmpty { AnimeShelf(title: "Continue watching", items: continuing) }
+                    if !recommendations.isEmpty {
+                        AnimeShelf(title: "Picked for you", items: recommendations)
+                        Text("Based on your favorites and watching activity").font(.caption).foregroundStyle(.secondary)
+                    }
                     VStack(alignment: .leading, spacing: 14) {
                         HStack { Text("This week").font(.title2.bold()); Spacer(); Text("Release calendar").font(.caption).foregroundStyle(.secondary) }
                         ScrollView(.horizontal, showsIndicators: false) {
@@ -72,6 +77,7 @@ struct HomeView: View {
         do { home = try await api.request("/home") } catch { self.error = error.localizedDescription }
         let list: CollectionResponse<Anime>? = try? await api.request("/library/continue")
         continuing = list?.items ?? []
+        if let home { recommendations = await Recommendations.shared.forYou(api: api, catalogue: home) }
     }
 }
 struct AnimeShelf: View {
