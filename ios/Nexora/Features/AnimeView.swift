@@ -83,7 +83,6 @@ struct AnimeView: View {
                     .disabled(busy || !statusAvailable)
                     }
                 }
-                if let message = downloads.message { Text(message).font(.caption).foregroundStyle(.secondary) }
                 HStack {
                     if page > 1 { Button("Previous 50") { page -= 1; Task { await loadEpisodes() } } }
                     Spacer()

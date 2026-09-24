@@ -246,7 +246,7 @@ struct OfflineEpisode: Codable, Identifiable {
         }
     }
     func localURL(_ location: String) -> URL {
-        URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true).appendingPathComponent(location)
+        DownloadPath.restored(location, home: URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true))
     }
     private func persist() {
         if let data = try? JSONEncoder().encode(items) { try? data.write(to: manifest, options: .atomic) }
@@ -285,15 +285,15 @@ struct OfflineEpisode: Codable, Identifiable {
         }
         items.removeAll { $0.id == item.id }; transferred.removeValue(forKey: item.id); persist(); refreshUsage(); Task { await pump() }
     }
-    private func record(_ id: String?, location: URL) {
+    private func record(_ id: String?, location: URL, systemManaged: Bool = false) {
         guard let index = items.firstIndex(where: { $0.id == id && $0.error == nil }) else {
-            if let relative = DownloadPath.relative(location, home: URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)) {
+            if let relative = DownloadPath.stored(location, home: URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true), systemManaged: systemManaged) {
                 try? FileManager.default.removeItem(at: localURL(relative))
             }
             return
         }
-        guard let relative = DownloadPath.relative(location, home: URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)) else {
-            fail(id, message: "Invalid download destination. Update the app, then tap Retry.")
+        guard let relative = DownloadPath.stored(location, home: URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true), systemManaged: systemManaged) else {
+            fail(id, message: "The download service returned an unsupported storage URL.")
             setQueuePaused(true)
             return
         }
@@ -303,11 +303,11 @@ struct OfflineEpisode: Codable, Identifiable {
         if usedBytes > limitBytes { fail(id, message: "File exceeds your storage limit.") }
     }
     nonisolated func urlSession(_ session: URLSession, assetDownloadTask: AVAssetDownloadTask, willDownloadTo location: URL) {
-        MainActor.assumeIsolated { self.record(assetDownloadTask.taskDescription, location: location) }
+        MainActor.assumeIsolated { self.record(assetDownloadTask.taskDescription, location: location, systemManaged: true) }
     }
     nonisolated func urlSession(_ session: URLSession, assetDownloadTask: AVAssetDownloadTask, didFinishDownloadingTo location: URL) {
         let id = assetDownloadTask.taskDescription
-        MainActor.assumeIsolated { self.record(id, location: location) }
+        MainActor.assumeIsolated { self.record(id, location: location, systemManaged: true) }
     }
     nonisolated func urlSession(_ session: URLSession, assetDownloadTask: AVAssetDownloadTask, didLoad timeRange: CMTimeRange, totalTimeRangesLoaded loadedTimeRanges: [NSValue], timeRangeExpectedToLoad: CMTimeRange) {
         let total = timeRangeExpectedToLoad.duration.seconds

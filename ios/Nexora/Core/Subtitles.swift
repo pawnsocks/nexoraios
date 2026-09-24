@@ -10,6 +10,11 @@ import AVFoundation
     private weak var player: AVPlayer?
     private var group: AVMediaSelectionGroup?
     private var output: AVPlayerItemLegibleOutput?
+    private var nativeRendering = false
+    func useNativeRendering(_ value: Bool) {
+        nativeRendering = value
+        output?.suppressesPlayerRendering = !value && !tracks.isEmpty
+    }
     private var clock: Any?
     private var events: [(Double, String)] = []
     func attach(_ item: AVPlayerItem, player: AVPlayer) {
@@ -27,7 +32,7 @@ import AVFoundation
                 let group = try await item.asset.loadMediaSelectionGroup(for: .legible)
                 guard self.item === item else { return }
                 self.group = group; self.tracks = group?.options.filter { $0.mediaType == .subtitle || $0.mediaType == .text } ?? []
-                output.suppressesPlayerRendering = !self.tracks.isEmpty
+                output.suppressesPlayerRendering = !self.nativeRendering && !self.tracks.isEmpty
                 if let group, let active = item.currentMediaSelection.selectedMediaOption(in: group), let index = self.tracks.firstIndex(of: active) { self.selected = index }
             } catch { /* No editable subtitle track. */ }
         }

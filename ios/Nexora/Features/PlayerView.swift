@@ -18,6 +18,7 @@ import AVKit
     private var closed = false
     private var preparing = false
     @Published var repairing = false
+    @Published var externalPresentation = false
     var didFinish: ((Int, Int) -> Void)?
     private var observer: NSKeyValueObservation?
     private var periodic: Any?
@@ -192,42 +193,50 @@ struct PlayerView: View {
     @AppStorage("autoNext") private var autoNext = true
     @AppStorage("preferredLanguage") private var language = "Deutsch"
     @StateObject private var model: PlayerModel
-    @State private var showControls = true
+    @State private var showControls = false
+    @State private var immersive = false
     @State private var showSubtitles = false
     @State private var downloadCandidate: Playback?
     init(initial: Playback) { _model = StateObject(wrappedValue: PlayerModel(initial)) }
     var body: some View {
         GeometryReader { geometry in
-            let landscape = geometry.size.width > geometry.size.height
-            ZStack {
+            let expanded = immersive || geometry.size.width > geometry.size.height
+            ZStack(alignment: .top) {
                 Color.black.ignoresSafeArea()
-                if landscape {
-                    VideoPlayer(player: model.player).overlay { SubtitleOverlay(subtitles: model.subtitles) }.ignoresSafeArea()
-                    VStack {
-                        header
-                        Spacer()
-                        if showControls { controls.padding().background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20)).padding(.horizontal, 60) }
-                    }.padding(.vertical, 12)
-                } else {
-                    VStack(spacing: 20) {
-                        header
-                        VideoPlayer(player: model.player).overlay { SubtitleOverlay(subtitles: model.subtitles) }
-                            .aspectRatio(16 / 9, contentMode: .fit)
-                            .frame(maxWidth: .infinity)
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text(model.playback.anime_title).font(.title2.bold())
-                            Text("Episode \(model.playback.episode_number)").foregroundStyle(.secondary)
-                        }.frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 20)
-                        controls.padding(20).background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 22)).padding(.horizontal)
-                        Spacer(minLength: 0)
+                VStack(spacing: 0) {
+                    NativePlayer(model: model)
+                        .overlay { if !model.externalPresentation { SubtitleOverlay(subtitles: model.subtitles) } }
+                        .frame(height: expanded ? geometry.size.height : geometry.size.width * 9 / 16)
+                        .padding(.top, expanded ? 0 : 60)
+                    if !expanded {
+                        ScrollView {
+                            VStack(alignment: .leading, spacing: 18) {
+                                Text(model.playback.anime_title).font(.title2.bold())
+                                Text("Episode \(model.playback.episode_number)").foregroundStyle(.secondary)
+                                Button { immersive = true } label: { Label("Full screen", systemImage: "arrow.up.left.and.arrow.down.right") }
+                                    .buttonStyle(.bordered)
+                                controls
+                            }.padding(20)
+                        }
                     }
                 }
-            }
+                header.padding(.top, 8)
+            }.ignoresSafeArea(edges: expanded ? .all : [])
         }
         .task { model.autoNext = autoNext; model.preferredLanguage = language; model.didFinish = { anime, episode in downloads.removeWatched(anime: anime, episode: episode, owner: api.offlineOwner) }; model.start(api) }
         .onChange(of: autoNext) { _, value in model.autoNext = value }
         .onChange(of: phase) { _, value in if value != .active { Task { await model.save() } } }
-        .onDisappear { Task { await model.stop() } }
+        .onDisappear { if !model.externalPresentation && phase == .active { Task { await model.stop() } } }
+        .sheet(isPresented: $showControls) {
+            NavigationStack {
+                ScrollView { controls.padding(24) }
+                    .navigationTitle("Playback")
+                    .toolbar { Button("Done") { showControls = false } }
+            }
+            .sheet(item: $downloadCandidate) { DownloadOptionsView(playback: $0) }
+            .sheet(isPresented: $showSubtitles) { NavigationStack { SubtitleSettings(subtitles: model.subtitles).toolbar { Button("Done") { showSubtitles = false } } } }
+            .presentationDetents([.medium, .large])
+        }
         .sheet(item: $downloadCandidate) { DownloadOptionsView(playback: $0) }
         .sheet(isPresented: $showSubtitles) { NavigationStack { SubtitleSettings(subtitles: model.subtitles).toolbar { Button("Done") { showSubtitles = false } } } }
     }
@@ -235,8 +244,18 @@ struct PlayerView: View {
         HStack {
             Button { Task { await model.stop(); dismiss() } } label: { Image(systemName: "xmark").frame(width: 44, height: 44).background(.ultraThinMaterial, in: Circle()) }
             Spacer()
-            Button { showControls.toggle() } label: { Image(systemName: "slider.horizontal.3").frame(width: 44, height: 44).background(.ultraThinMaterial, in: Circle()) }
+            if immersive {
+                Button { immersive = false } label: { Image(systemName: "arrow.down.right.and.arrow.up.left").frame(width: 44, height: 44).background(.ultraThinMaterial, in: Circle()) }
+                    .accessibilityLabel("Exit full screen")
+            }
+            Button { showControls.toggle() } label: { Image(systemName: "ellipsis").frame(width: 44, height: 44).background(.ultraThinMaterial, in: Circle()) }
         }.foregroundStyle(.white).padding(.horizontal, 20)
+    }
+    private var currentDownload: OfflineEpisode? {
+        downloads.items.first { item in
+            item.owner == api.offlineOwner && item.animeID == model.playback.anime_id &&
+            item.episode == model.playback.episode_number && item.language == model.playback.source.language
+        }
     }
     private var controls: some View {
         VStack(spacing: 12) {
@@ -260,7 +279,12 @@ struct PlayerView: View {
             }
             if model.busy { ProgressView("Loading episode…") }
             if let error = model.error { Text(error).font(.caption).foregroundStyle(.secondary) }
-            if let message = downloads.message { Text(message).font(.caption).foregroundStyle(.secondary) }
+            if let item = currentDownload {
+                if let error = item.error { Text(error).font(.caption).foregroundStyle(.secondary) }
+                else if item.progress >= 1 { Label("Available offline", systemImage: "checkmark.circle").font(.caption) }
+                else if item.queued == true { Text("This episode is queued in Downloads.").font(.caption) }
+                else { ProgressView("Downloading this episode", value: item.progress) }
+            }
         }
     }
 }

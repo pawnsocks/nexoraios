@@ -20,6 +20,15 @@ import Foundation
         precondition(DownloadPath.relative(URL(string: "https://example.com/video")!, home: home) == nil)
         try fm.createSymbolicLink(at: home.appendingPathComponent("escape"), withDestinationURL: root)
         precondition(DownloadPath.relative(home.appendingPathComponent("escape/outside"), home: home) == nil)
-        print("9 download destination checks passed")
+        let systemAsset = root.appendingPathComponent("System Assets/episode.movpkg")
+        precondition(DownloadPath.stored(systemAsset, home: home) == nil)
+        let stored = DownloadPath.stored(systemAsset, home: home, systemManaged: true)!
+        precondition(stored == systemAsset.absoluteString)
+        precondition(DownloadPath.restored(stored, home: home) == systemAsset)
+        precondition(DownloadPath.stored(URL(string: "https://example.com/video")!, home: home, systemManaged: true) == nil)
+        precondition(DownloadPath.stored(asset, home: home, systemManaged: true) == "Library/video.movpkg")
+        precondition(DownloadPath.restored("Library/video.movpkg", home: home) == asset)
+        precondition(DownloadPath.stored(URL(string: "file://remotehost/path/video")!, home: home, systemManaged: true) == nil)
+        print("16 download destination checks passed")
     }
 }

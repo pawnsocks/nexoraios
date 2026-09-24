@@ -13,6 +13,11 @@ targets:
   Nexora:
     type: application
     platform: iOS
+    info:
+      path: Generated/Info.plist
+      properties:
+        UIBackgroundModes:
+          - audio
     sources:
       - Nexora
     settings:

@@ -17,6 +17,21 @@ enum DownloadPath {
         return resolved.standardizedFileURL
     }
 
+    // Only AVAssetDownloadDelegate may opt into system-managed destinations.
+    static func stored(_ location: URL, home: URL, systemManaged: Bool = false) -> String? {
+        if let relative = relative(location, home: home) { return relative }
+        guard systemManaged, location.isFileURL,
+              location.absoluteURL.path.hasPrefix("/"),
+              location.absoluteURL.pathComponents.count > 1,
+              location.host == nil || location.host == "" || location.host == "localhost" else { return nil }
+        return location.absoluteURL.absoluteString
+    }
+
+    static func restored(_ value: String, home: URL) -> URL {
+        if let url = URL(string: value), url.isFileURL { return url }
+        return home.appendingPathComponent(value)
+    }
+
     static func relative(_ location: URL, home: URL) -> String? {
         guard location.scheme == nil || location.isFileURL else { return nil }
         let candidate: URL

@@ -6,6 +6,7 @@ struct DownloadOptionsView: View {
     @EnvironmentObject var api: API
     @Environment(\.dismiss) private var dismiss
     @State private var confirmMobile = false
+    @State private var error: String?
     var body: some View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 20) {
@@ -17,6 +18,7 @@ struct DownloadOptionsView: View {
                 Button { confirmMobile = true } label: {
                     Label("Allow mobile data", systemImage: "antenna.radiowaves.left.and.right").frame(maxWidth: .infinity)
                 }.buttonStyle(.bordered)
+                if let error { Text(error).foregroundStyle(.red).font(.caption) }
                 Text("Wi-Fi downloads wait for a suitable connection. Allowing mobile data also permits the download to continue if Wi-Fi disconnects.")
                     .font(.caption).foregroundStyle(.secondary)
             }.padding(24)
@@ -32,7 +34,9 @@ struct DownloadOptionsView: View {
         }.presentationDetents([.medium, .large])
     }
     private func start(cellular: Bool) {
-        downloads.add(playback, owner: api.offlineOwner, allowCellular: cellular)
-        dismiss()
+        let request = DownloadRequest(animeID: playback.anime_id, title: playback.anime_title,
+            episode: playback.episode_number, language: playback.source.language ?? "Deutsch")
+        if downloads.enqueue([request], owner: api.offlineOwner, allowCellular: cellular) { dismiss() }
+        else { error = downloads.message ?? "Could not queue this episode." }
     }
 }
