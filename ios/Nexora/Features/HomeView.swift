@@ -91,7 +91,7 @@ struct AnimeShelf: View {
                     ForEach(items) { anime in
                         NavigationLink { AnimeView(anime: anime) } label: {
                             VStack(alignment: .leading, spacing: 8) {
-                                Artwork(url: anime.cover).frame(width: 128, height: 182).clipShape(RoundedRectangle(cornerRadius: 16))
+                                AnimeArtwork(anime: anime).frame(width: 128, height: 182).clipShape(RoundedRectangle(cornerRadius: 16))
                                 Text(anime.title).font(.subheadline.weight(.medium)).lineLimit(2).frame(width: 128, alignment: .leading)
                                 if let episode = anime.episode { Text("Episode \(episode)").font(.caption).foregroundStyle(.secondary) }
                             }

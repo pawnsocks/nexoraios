@@ -5,7 +5,7 @@ import UIKit
 import Network
 
 struct OfflineEpisode: Codable, Identifiable {
-    let id: String
+    var id: String
     let title: String
     let owner: String
     let episode: Int
@@ -81,7 +81,7 @@ struct OfflineEpisode: Codable, Identifiable {
         var added: [OfflineEpisode] = []
         for request in requests where request.animeID > 0 && (1...9999).contains(request.episode) {
             let id = "\(owner)-\(request.animeID)-\(request.episode)-\(request.language)"
-            guard ids.insert(id).inserted else { continue }
+            guard !items.contains(where: { $0.owner == owner && $0.animeID == request.animeID && $0.episode == request.episode && $0.language == request.language }), ids.insert(id).inserted else { continue }
             added.append(OfflineEpisode(id: id, title: request.title, owner: owner, episode: request.episode,
                 language: request.language, queued: true, animeID: request.animeID, wifiOnly: !allowCellular))
         }
@@ -100,15 +100,33 @@ struct OfflineEpisode: Codable, Identifiable {
     func retry(_ item: OfflineEpisode) {
         guard item.owner == api?.offlineOwner, item.error != nil, item.animeID != nil,
               let index = items.firstIndex(where: { $0.id == item.id }) else { return }
+        for session in sessions {
+            session.getAllTasks { tasks in tasks.filter { $0.taskDescription == item.id }.forEach { $0.cancel() } }
+        }
+        if let location = items[index].location { try? FileManager.default.removeItem(at: localURL(location)) }
+        // A fresh identity prevents late callbacks from the old task corrupting this attempt.
+        items[index].id = UUID().uuidString
+        items[index].location = nil
+        transferred.removeValue(forKey: item.id)
         items[index].error = nil; items[index].queued = true; items[index].progress = 0
-        persist(); Task { await pump() }
+        persist(); setQueuePaused(false); Task { await pump() }
     }
     private func pump() async {
         guard ready, !pumping, !queuePaused, online, let api, let owner = api.offlineOwner else { return }
         pumping = true; defer { pumping = false; preparingID = nil }
         // Include cancelling and restored background tasks so only one transfer runs.
         for session in sessions {
-            if (await session.allTasks).contains(where: { $0.state != .completed }) { return }
+            let tasks = (await session.allTasks).filter { $0.state != .completed }
+            for task in tasks {
+                if let index = items.firstIndex(where: { $0.id == task.taskDescription }), items[index].error == nil {
+                    if items[index].queued == true { items[index].queued = false; persist() }
+                    message = "Downloading episode \(items[index].episode)…"
+                } else {
+                    task.cancel()
+                    message = "Stopping the previous transfer…"
+                }
+            }
+            if !tasks.isEmpty { return }
         }
         guard let next = items.first(where: { $0.owner == owner && $0.queued == true }), let animeID = next.animeID else { return }
         guard next.wifiOnly != true || onWiFi else { message = "Waiting for Wi-Fi. Reorder the queue to download another episode first."; return }
@@ -255,7 +273,7 @@ struct OfflineEpisode: Codable, Identifiable {
         } else { fail(id, message: "This source does not support offline downloads."); setQueuePaused(true); return }
         task.taskDescription = id
         items[index].queued = false; items[index].error = nil
-        persist(); task.resume(); message = "Download started. View progress in Downloads."
+        persist(); task.resume(); message = "Download requested. Waiting for video data…"
     }
     func remove(_ item: OfflineEpisode) {
         for session in sessions {
@@ -268,10 +286,19 @@ struct OfflineEpisode: Codable, Identifiable {
         items.removeAll { $0.id == item.id }; transferred.removeValue(forKey: item.id); persist(); refreshUsage(); Task { await pump() }
     }
     private func record(_ id: String?, location: URL) {
-        guard let index = items.firstIndex(where: { $0.id == id && $0.error == nil }) else { try? FileManager.default.removeItem(at: location); return }
-        let prefix = NSHomeDirectory() + "/"
-        guard location.path.hasPrefix(prefix) else { items[index].error = "Invalid download destination."; persist(); return }
-        items[index].location = String(location.path.dropFirst(prefix.count))
+        guard let index = items.firstIndex(where: { $0.id == id && $0.error == nil }) else {
+            if let relative = DownloadPath.relative(location, home: URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)) {
+                try? FileManager.default.removeItem(at: localURL(relative))
+            }
+            return
+        }
+        guard let relative = DownloadPath.relative(location, home: URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)) else {
+            fail(id, message: "Invalid download destination. Update the app, then tap Retry.")
+            setQueuePaused(true)
+            return
+        }
+        items[index].queued = false
+        items[index].location = relative
         persist(); refreshUsage()
         if usedBytes > limitBytes { fail(id, message: "File exceeds your storage limit.") }
     }
@@ -332,7 +359,7 @@ struct OfflineEpisode: Codable, Identifiable {
         Task { @MainActor in
             if self.items.contains(where: { $0.id == id && (failed || $0.error != nil) }) { self.setQueuePaused(true) }
             if failed && self.items.first(where: { $0.id == id })?.error == nil { self.fail(id, message: "Download failed. Remove it and try again while online.") }
-            else if let index = self.items.firstIndex(where: { $0.id == id }), self.items[index].location != nil {
+            else if !failed, let index = self.items.firstIndex(where: { $0.id == id && $0.error == nil }), self.items[index].location != nil {
                 self.items[index].queued = false; self.items[index].progress = 1; self.transferred.removeValue(forKey: self.items[index].id); self.persist(); self.refreshUsage()
             }
             Task { await self.pump() }

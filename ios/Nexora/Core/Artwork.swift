@@ -43,3 +43,23 @@ struct Artwork: View {
         }
     }
 }
+
+/// Library rows omit cover URLs; fetch metadata without replacing saved progress.
+struct AnimeArtwork: View {
+    let anime: Anime
+    @EnvironmentObject var api: API
+    @State private var resolvedCover: String?
+    var body: some View {
+        Artwork(url: (anime.cover?.isEmpty == false ? anime.cover : nil) ?? resolvedCover)
+            .task(id: anime.id) {
+                resolvedCover = nil
+                guard anime.cover == nil || anime.cover?.isEmpty == true else { return }
+                let owner = api.offlineOwner
+                do {
+                    let detail: Anime = try await api.request("/anime/\(anime.id)")
+                    guard !Task.isCancelled, owner == api.offlineOwner else { return }
+                    resolvedCover = detail.cover
+                } catch { /* Keep the placeholder when metadata is unavailable. */ }
+            }
+    }
+}

@@ -10,6 +10,8 @@ queue_checks_dir=$(mktemp -d)
 trap 'rm -rf "$queue_checks_dir"' EXIT
 swiftc Nexora/Core/DownloadQueuePolicy.swift Tests/DownloadQueueChecks.swift -o "$queue_checks_dir/queue-checks"
 "$queue_checks_dir/queue-checks"
+swiftc Nexora/Core/DownloadPath.swift Tests/DownloadPathChecks.swift -o "$queue_checks_dir/path-checks"
+"$queue_checks_dir/path-checks"
 xcodegen generate
 xcodebuild -project Nexora.xcodeproj -scheme Nexora -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO MARKETING_VERSION="$release_version" CURRENT_PROJECT_VERSION="$build_number" build
 mkdir -p build/package/Payload

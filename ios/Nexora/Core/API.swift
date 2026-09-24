@@ -20,6 +20,48 @@ enum APIError: LocalizedError {
     }
     @Published var token: String? = Keychain.read()
     @Published var release: ReleaseInfo?
+    @Published var checkingUpdate = false
+    @Published var updateNotice: UpdateNotice?
+    private var announcedBuild: Int?
+    struct UpdateNotice: Identifiable {
+        let id = UUID()
+        let title: String
+        let message: String
+        let url: URL?
+    }
+    private struct Runs: Decodable { let workflow_runs: [Run] }
+    private struct Run: Decodable {
+        let run_number: Int; let conclusion: String?; let path: String
+        let html_url: String; let head_branch: String?
+    }
+    func checkForUpdates(manual: Bool = false) async {
+        guard !checkingUpdate else { return }
+        checkingUpdate = true; defer { checkingUpdate = false }
+        do {
+            // The public build feed reflects published builds even when server version settings lag behind.
+            let url = URL(string: "https://api.github.com/repos/pawnsocks/nexoraios/actions/workflows/ios.yml/runs?branch=main&status=success&per_page=5")!
+            var request = URLRequest(url: url)
+            request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+            request.setValue("Nexora-iOS", forHTTPHeaderField: "User-Agent")
+            let (data, response) = try await session.data(for: request)
+            guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw APIError.message("The update service could not be reached. Try again later.") }
+            let runs = try JSONDecoder().decode(Runs.self, from: data)
+            guard let latest = runs.workflow_runs.filter({ $0.head_branch == "main" && $0.conclusion == "success" && $0.path == ".github/workflows/ios.yml" }).max(by: { $0.run_number < $1.run_number }) else {
+                throw APIError.message("No published build could be verified.")
+            }
+            let current = Int(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "0") ?? 0
+            if latest.run_number > current {
+                if manual || announcedBuild != latest.run_number {
+                    announcedBuild = latest.run_number
+                    updateNotice = UpdateNotice(title: "Update available", message: "Build \(latest.run_number) is ready. Open the download page? Install the new IPA with Xenora on your computer; keep the existing app installed.", url: URL(string: latest.html_url))
+                }
+            } else if manual {
+                updateNotice = UpdateNotice(title: "Already up to date", message: "You have the latest successful build (\(current)).", url: nil)
+            }
+        } catch {
+            if manual { updateNotice = UpdateNotice(title: "Update check failed", message: error.localizedDescription, url: nil) }
+        }
+    }
     private let session: URLSession = {
         let config = URLSessionConfiguration.ephemeral
         config.timeoutIntervalForRequest = 65

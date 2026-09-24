@@ -45,7 +45,7 @@ struct SettingsView: View {
                 Link(destination: URL(string: "https://discord.gg/BU5xTMu9QE")!) {
                     Label("Support Discord", systemImage: "bubble.left.and.bubble.right")
                 }
-                Button("Check for updates") { Task { await api.restore() } }
+                Button(api.checkingUpdate ? "Checking…" : "Check for updates") { Task { await api.checkForUpdates(manual: true) } }.disabled(api.checkingUpdate)
             }
             Section {
                 Button("Log out") { perform { try await api.logout() } }.disabled(working)

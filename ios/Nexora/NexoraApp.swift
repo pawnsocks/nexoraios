@@ -15,6 +15,7 @@ import SwiftUI
     }
 }
 struct RootView: View {
+    @Environment(\.openURL) private var openURL
     @EnvironmentObject var api: API
     @EnvironmentObject var network: Connectivity
     @State private var launching = true
@@ -34,6 +35,13 @@ struct RootView: View {
             try? await Task.sleep(for: .seconds(1.2))
             withAnimation(.easeOut(duration: 0.3)) { launching = false }
             await restore
+            await api.checkForUpdates()
+        }
+        .alert(item: $api.updateNotice) { notice in
+            if let url = notice.url {
+                return Alert(title: Text(notice.title), message: Text(notice.message), primaryButton: .default(Text("Open update")) { openURL(url) }, secondaryButton: .cancel(Text("Later")))
+            }
+            return Alert(title: Text(notice.title), message: Text(notice.message), dismissButton: .default(Text("OK")))
         }
         .onChange(of: network.online) { _, online in if online { Task { await api.restore() } } }
     }
