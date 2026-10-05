@@ -79,7 +79,7 @@ struct OfflineEpisode: Codable, Identifiable {
         guard let owner, owner == api?.offlineOwner else { message = "Please log in before downloading."; return false }
         var ids = Set(items.map(\.id))
         var added: [OfflineEpisode] = []
-        for request in requests where request.animeID > 0 && (1...9999).contains(request.episode) {
+        for request in requests where DownloadQueuePolicy.accepts(animeID: request.animeID, episode: request.episode) {
             let id = "\(owner)-\(request.animeID)-\(request.episode)-\(request.language)"
             guard !items.contains(where: { $0.owner == owner && $0.animeID == request.animeID && $0.episode == request.episode && $0.language == request.language }), ids.insert(id).inserted else { continue }
             added.append(OfflineEpisode(id: id, title: request.title, owner: owner, episode: request.episode,

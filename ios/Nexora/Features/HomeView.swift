@@ -82,12 +82,22 @@ struct HomeView: View {
     }
     private func load() async {
         error = nil
+        async let catalogue: Void = loadCatalogue()
+        async let history: Void = loadContinue()
+        async let news: Void = loadNews()
+        _ = await (catalogue, history, news)
+        if let home { recommendations = await Recommendations.shared.forYou(api: api, catalogue: home) }
+    }
+    private func loadCatalogue() async {
         do { home = try await api.request("/home") } catch { self.error = error.localizedDescription }
+    }
+    private func loadContinue() async {
         let list: CollectionResponse<Anime>? = try? await api.request("/continue-today", web: true)
         continuing = list?.items ?? []
+    }
+    private func loadNews() async {
         let news: CollectionResponse<Announcement>? = try? await api.request("/announcements", web: true)
         announcements = news?.items ?? []
-        if let home { recommendations = await Recommendations.shared.forYou(api: api, catalogue: home) }
     }
 }
 struct AnimeShelf: View {

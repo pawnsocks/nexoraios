@@ -1,6 +1,9 @@
 import Foundation
 
 enum DownloadQueuePolicy {
+    static func accepts(animeID: Int, episode: Int) -> Bool {
+        animeID != 0 && (-2147483647...2147483647).contains(animeID) && (1...9999).contains(episode)
+    }
     static func releasedCount(status: String?, total: Int?, aired: Int?) -> Int? {
         let value = status == "FINISHED" ? total : aired
         guard let value, (0...9999).contains(value) else { return nil }
