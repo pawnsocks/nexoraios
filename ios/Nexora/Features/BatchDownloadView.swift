@@ -19,6 +19,7 @@ struct BatchDownloadView: View {
     @Environment(\.dismiss) private var dismiss
     @AppStorage("preferredLanguage") private var language = "Deutsch"
     @State private var parts: [DownloadPart] = []
+    @State private var directEpisodes: [Int: [Int]] = [:]
     @State private var selection = Set<Int>()
     @State private var loading = true
     @State private var error: String?
@@ -82,6 +83,18 @@ struct BatchDownloadView: View {
             for entry in entries where seen.insert(entry.id).inserted {
                 try Task.checkCancellation()
                 let detail: Anime = try await api.request("/anime/\(entry.id)")
+                if entry.id < 0 {
+                    var ids = Set<Int>(); var page = 1
+                    while page <= 400 {
+                        try Task.checkCancellation()
+                        let result: EpisodesResponse = try await api.request("/anime/\(entry.id)/episodes?page=\(page)")
+                        ids.formUnion(result.items.map(\.id))
+                        if !result.has_next { break }; page += 1
+                    }
+                    directEpisodes[entry.id] = ids.sorted()
+                    loaded.append(DownloadPart(id: detail.id, title: detail.title, count: ids.count))
+                    continue
+                }
                 let count = DownloadQueuePolicy.releasedCount(status: detail.status, total: detail.episodes, aired: detail.aired_episodes)
                 loaded.append(DownloadPart(id: detail.id, title: detail.title, count: count))
             }
@@ -93,7 +106,8 @@ struct BatchDownloadView: View {
         guard count <= 20_000 else { error = "Select fewer than 20,001 episodes per queue."; return }
         let requests = parts.filter { selection.contains($0.id) }.flatMap { part -> [DownloadRequest] in
             guard let count = part.count, count > 0 else { return [] }
-            return (1...count).map { DownloadRequest(animeID: part.id, title: part.title, episode: $0, language: language) }
+            let numbers = directEpisodes[part.id] ?? Array(1...count)
+            return numbers.map { DownloadRequest(animeID: part.id, title: part.title, episode: $0, language: language) }
         }
         if downloads.enqueue(requests, owner: api.offlineOwner, allowCellular: cellular) { dismiss() }
         else { error = downloads.message }

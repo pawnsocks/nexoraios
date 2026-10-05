@@ -22,6 +22,7 @@ struct SearchView: View {
             }
             if search.query.count >= 2 && search.results.isEmpty && !loading && error == nil { Text("No matching anime.").foregroundStyle(.secondary) }
         }.navigationTitle("Search").searchable(text: $search.query, prompt: "Titles in any language")
+        .toolbar { NavigationLink { AlphabetView() } label: { Label("A–Z", systemImage: "textformat.abc") } }
         .task(id: search.query) {
             guard search.query.count >= 2 else { search.results = []; loading = false; return }
             guard search.loadedQuery != search.query || search.results.isEmpty else { return }
@@ -29,7 +30,7 @@ struct SearchView: View {
             do {
                 try await Task.sleep(for: .milliseconds(400))
                 var parts = URLComponents(); parts.queryItems = [URLQueryItem(name: "q", value: search.query)]
-                let response: CollectionResponse<Anime> = try await api.request("/search?" + (parts.percentEncodedQuery ?? ""))
+                let response: CollectionResponse<Anime> = try await api.request("/search?" + (parts.percentEncodedQuery ?? ""), web: true)
                 try Task.checkCancellation(); search.results = response.items; search.loadedQuery = search.query; loading = false
             } catch is CancellationError { }
             catch { if !Task.isCancelled { self.error = error.localizedDescription; loading = false } }

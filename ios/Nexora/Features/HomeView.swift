@@ -7,11 +7,20 @@ struct HomeView: View {
     @State private var recommendations: [Anime] = []
     @State private var error: String?
     @State private var day = Date()
+    @State private var announcements: [Announcement] = []
     private var days: [Date] { (0..<7).compactMap { Calendar.current.date(byAdding: .day, value: $0, to: Date()) } }
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 28) {
                 UpdateBanner()
+                ForEach(announcements) { item in
+                    VStack(alignment: .leading, spacing: 8) {
+                        Label(item.title, systemImage: "megaphone").font(.headline)
+                        Text(item.body).font(.subheadline).foregroundStyle(.secondary)
+                    }.frame(maxWidth: .infinity, alignment: .leading).padding(18)
+                    .background(.pink.opacity(0.10), in: RoundedRectangle(cornerRadius: 18))
+                }
+                if !continuing.isEmpty { ContinueShelf(items: continuing) }
                 if let home {
                     if let featured = home.airing.first ?? home.popular.first {
                         NavigationLink { AnimeView(anime: featured) } label: {
@@ -27,7 +36,6 @@ struct HomeView: View {
                             }.clipShape(RoundedRectangle(cornerRadius: 26))
                         }.buttonStyle(.plain)
                     }
-                    if !continuing.isEmpty { AnimeShelf(title: "Continue watching", items: continuing) }
                     if !recommendations.isEmpty {
                         AnimeShelf(title: "Picked for you", items: recommendations)
                         Text("Based on your favorites and watching activity").font(.caption).foregroundStyle(.secondary)
@@ -75,8 +83,10 @@ struct HomeView: View {
     private func load() async {
         error = nil
         do { home = try await api.request("/home") } catch { self.error = error.localizedDescription }
-        let list: CollectionResponse<Anime>? = try? await api.request("/library/continue")
+        let list: CollectionResponse<Anime>? = try? await api.request("/continue-today", web: true)
         continuing = list?.items ?? []
+        let news: CollectionResponse<Announcement>? = try? await api.request("/announcements", web: true)
+        announcements = news?.items ?? []
         if let home { recommendations = await Recommendations.shared.forYou(api: api, catalogue: home) }
     }
 }

@@ -15,6 +15,7 @@ struct Anime: Codable, Identifiable, Hashable {
     var episode: Int?
     var position: Double?
     var duration: Double?
+    var variants: [AnimeVariant]?
 }
 struct Season: Decodable, Identifiable { let id: Int; let title: String; let label: String }
 struct Episode: Decodable, Identifiable { let id: Int; let title: String }
@@ -22,7 +23,7 @@ struct CollectionResponse<T: Decodable>: Decodable { let items: [T] }
 struct EpisodesResponse: Decodable { let items: [Episode]; let has_next: Bool; let unknown: Bool }
 struct CalendarEntry: Decodable, Identifiable { let id: Int; let episode: Int; let airing_at: Int; let anime: Anime }
 struct HomeData: Decodable { let popular: [Anime]; let airing: [Anime]; let upcoming: [Anime]; let calendar: [CalendarEntry]; let calendar_note: String }
-struct Account: Codable { let id: String; let username: String }
+struct Account: Codable { let id: String; let username: String; var must_change_password: Bool?; var is_admin: Bool? }
 struct LoginResponse: Decodable { let token: String; let account: Account }
 struct OK: Decodable { let ok: Bool }
 struct ReleaseInfo: Decodable { let api_version: Int; let latest: String; let minimum: String; let url: String?; let notes: String }
@@ -42,3 +43,6 @@ struct MediaSource: Decodable { let id: String?; let url: String; let content_ty
 struct EpisodeStatus: Decodable, Identifiable { let id: Int; let watched: Bool; let position: Double; let duration: Double? }
 
 struct UndoResponse: Decodable { let ok: Bool; let undo_token: String? }
+
+struct AnimeVariant: Codable, Hashable, Identifiable { let id: Int; let title: String; var cover: String? }
+struct Announcement: Decodable, Identifiable { let id: String; let title: String; let body: String; let kind: String }

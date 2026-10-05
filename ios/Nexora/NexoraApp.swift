@@ -28,13 +28,12 @@ struct RootView: View {
                     Text("NEXORA").font(.headline).tracking(7)
                 }.transition(.opacity)
             } else if api.token == nil { AuthView() }
+            else if api.account?.must_change_password == true { NavigationStack { PasswordView(required: true) } }
             else { MainView() }
         }
         .task {
-            async let restore: Void = api.restore()
-            try? await Task.sleep(for: .seconds(1.2))
+            await api.restore()
             withAnimation(.easeOut(duration: 0.3)) { launching = false }
-            await restore
             await api.checkForUpdates()
         }
         .alert(item: $api.updateNotice) { notice in

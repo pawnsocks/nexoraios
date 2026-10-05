@@ -139,7 +139,7 @@ struct OfflineEpisode: Codable, Identifiable {
         preparingID = next.id
         do {
             // Resolve only when the episode reaches the front; signed URLs must stay fresh.
-            let playback: Playback = try await api.request("/play", method: "POST", body: ["anime_id": animeID, "episode": next.episode, "language": next.language])
+            let playback: Playback = try await api.request("/play", method: "POST", body: ["anime_id": animeID, "episode": next.episode, "language": next.language, "provider": "auto", "quick": true])
             guard api.token == token, api.offlineOwner == owner, !queuePaused,
                   items.contains(where: { $0.id == next.id && $0.queued == true }) else { return }
             guard playback.anime_id == animeID, playback.episode_number == next.episode,
@@ -273,7 +273,7 @@ struct OfflineEpisode: Codable, Identifiable {
         } else { fail(id, message: "This source does not support offline downloads."); setQueuePaused(true); return }
         task.taskDescription = id
         items[index].queued = false; items[index].error = nil
-        persist(); task.resume(); message = "Download requested. Waiting for video data…"
+        persist(); task.resume(); message = "Connecting to the video server…"
     }
     func remove(_ item: OfflineEpisode) {
         for session in sessions {

@@ -6,7 +6,8 @@ enum APIError: LocalizedError {
     var errorDescription: String? { if case let .message(text) = self { return text }; return nil }
 }
 @MainActor final class API: ObservableObject {
-    static let base = URL(string: "https://nexoradc.duckdns.org")!
+    static let base = URL(string: "https://nexoraanime.duckdns.org")!
+    static let supportURL = URL(string: "https://discord.com/invite/w6w4AxfUCT")!
     @Published var account: Account? {
         didSet {
             if let account, let data = try? JSONEncoder().encode(account) { UserDefaults.standard.set(data, forKey: "offline-account") }
@@ -53,7 +54,7 @@ enum APIError: LocalizedError {
             if latest.run_number > current {
                 if manual || announcedBuild != latest.run_number {
                     announcedBuild = latest.run_number
-                    updateNotice = UpdateNotice(title: "Update available", message: "Build \(latest.run_number) is ready. Open the download page? Install the new IPA with Xenora on your computer; keep the existing app installed.", url: URL(string: latest.html_url))
+                    updateNotice = UpdateNotice(title: "Update available", message: "Build \(latest.run_number) is ready. Open the download page? Install the new IPA using your signing tool; keep the existing app installed.", url: URL(string: latest.html_url))
                 }
             } else if manual {
                 updateNotice = UpdateNotice(title: "Already up to date", message: "You have the latest successful build (\(current)).", url: nil)
@@ -69,10 +70,12 @@ enum APIError: LocalizedError {
         config.urlCache = nil
         return URLSession(configuration: config)
     }()
-    func request<T: Decodable>(_ path: String, method: String = "GET", body: [String: Any]? = nil, authenticated: Bool = true) async throws -> T {
-        guard let url = URL(string: "/api/mobile" + path, relativeTo: Self.base)?.absoluteURL else { throw APIError.message("Invalid request.") }
+    func request<T: Decodable>(_ path: String, method: String = "GET", body: [String: Any]? = nil, authenticated: Bool = true, web: Bool = false) async throws -> T {
+        guard let url = URL(string: (web ? "/api/web" : "/api/mobile") + path, relativeTo: Self.base)?.absoluteURL else { throw APIError.message("Invalid request.") }
         var req = URLRequest(url: url)
+        req.timeoutInterval = ["/me", "/version"].contains(path) ? 8 : 65
         req.httpMethod = method
+        req.setValue(Self.base.absoluteString, forHTTPHeaderField: "Origin")
         req.setValue("application/json", forHTTPHeaderField: "Accept")
         if authenticated {
             guard let token else { throw APIError.message("Please log in.") }
@@ -81,29 +84,45 @@ enum APIError: LocalizedError {
         if let body { req.httpBody = try JSONSerialization.data(withJSONObject: body); req.setValue("application/json", forHTTPHeaderField: "Content-Type") }
         let (data, response) = try await session.data(for: req)
         guard let http = response as? HTTPURLResponse else { throw APIError.message("Server unavailable.") }
-        if http.statusCode == 401 && authenticated { token = nil; account = nil; Keychain.clear() }
+        if http.statusCode == 401 && authenticated { clearSession() }
         guard (200..<300).contains(http.statusCode) else {
             let value = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
-            let message = (value?["error"] as? String) ?? (value?["detail"] as? String)
-            throw APIError.message(message ?? "Request failed (\(http.statusCode)). Please try again.")
+            let detail = value?["detail"] as? [String: Any]
+            if detail?["code"] as? String == "password_change_required" { account?.must_change_password = true }
+            let message = (value?["error"] as? String) ?? (value?["detail"] as? String) ?? (detail?["message"] as? String)
+            let reference = http.value(forHTTPHeaderField: "X-Nexora-Error-ID").map { " · Error ID: " + $0 } ?? ""
+            throw APIError.message((message ?? "Request failed (\(http.statusCode)). Please try again.") + reference)
         }
         return try JSONDecoder().decode(T.self, from: data)
     }
-    func login(username: String, password: String, register: Bool) async throws {
-        let result: LoginResponse = try await request(register ? "/auth/register" : "/auth/login", method: "POST", body: ["username": username, "password": password], authenticated: false)
+    func login(username: String, password: String) async throws {
+        let result: LoginResponse = try await request("/auth/login", method: "POST", body: ["username": username, "password": password], authenticated: false)
         try Keychain.store(result.token)
         token = result.token; account = result.account
     }
+    func clearSession() {
+        token = nil; account = nil; Keychain.clear()
+        UserDefaults.standard.removeObject(forKey: "offline-account")
+    }
+    func changePassword(current: String, new: String) async throws {
+        let _: OK = try await request("/security/password", method: "POST", body: ["current_password": current, "new_password": new], web: true)
+        clearSession()
+    }
+    func logoutAll() async throws {
+        let _: OK = try await request("/security/logout-all", method: "POST", web: true)
+        clearSession()
+    }
     func restore() async {
-        release = try? await request("/version", authenticated: false)
+        async let info: ReleaseInfo? = try? request("/version", authenticated: false)
         if token != nil { account = try? await request("/me") }
+        release = await info
     }
     func logout() async throws {
         let _: OK = try await request("/logout", method: "POST")
-        token = nil; account = nil; Keychain.clear()
+        clearSession()
     }
     func deleteAccount() async throws {
         let _: OK = try await request("/account", method: "DELETE")
-        token = nil; account = nil; Keychain.clear()
+        clearSession()
     }
 }

@@ -40,6 +40,13 @@ struct AnimeView: View {
                     Button(favorite ? "Remove favorite" : "Favorite anime", systemImage: favorite ? "heart.fill" : "heart") { Task { await toggleFavorite() } }.buttonStyle(.bordered).disabled(favoriteBusy)
                     if anime.episode != nil { Button("Continue") { Task { await play(anime.episode ?? 1) } }.buttonStyle(.borderedProminent).disabled(busy) }
                 }
+                if let editions = anime.variants, editions.count > 1 {
+                    Menu("Other editions") {
+                        ForEach(editions.filter { $0.id != anime.id }) { edition in
+                            NavigationLink(edition.title) { AnimeView(anime: Anime(id: edition.id, title: edition.title, cover: edition.cover)) }
+                        }
+                    }
+                }
                 NavigationLink { GuideView(animeID: anime.id) } label: { Label("Watch order", systemImage: "list.number") }.buttonStyle(.bordered)
                 if let token = undoToken {
                     TimelineView(.periodic(from: .now, by: 1)) { context in
@@ -119,7 +126,7 @@ struct AnimeView: View {
                 suggestions = await Recommendations.shared.forYou(api: api, catalogue: home, excluding: anime.id)
             }
         }
-        .task(id: selected) { if selected > 0 { page = 1; await loadEpisodes() } }
+        .task(id: selected) { if selected != 0 { page = 1; await loadEpisodes() } }
         .confirmationDialog(allWatched ? "Mark every known episode of the selected season as watched?" : "Reset all saved progress for the selected season?", isPresented: $confirmAll, titleVisibility: .visible) {
             Button(allWatched ? "Mark as watched" : "Reset progress", role: allWatched ? nil : .destructive) { Task { await changeStatus(episode: nil, complete: allWatched) } }
         }
@@ -166,13 +173,13 @@ struct AnimeView: View {
     }
     func play(_ episode: Int) async {
         busy = true; error = nil; defer { busy = false }
-        do { playback = try await api.request("/play", method: "POST", body: ["anime_id": selected == 0 ? anime.id : selected, "episode": episode, "language": language]) }
+        do { playback = try await api.request("/play", method: "POST", body: ["anime_id": selected == 0 ? anime.id : selected, "episode": episode, "language": language, "provider": "auto", "quick": true, "subtitle_fallback": true]) }
         catch { self.error = error.localizedDescription }
     }
     func download(_ episode: Int) async {
         busy = true; defer { busy = false }
         do {
-            let source: Playback = try await api.request("/play", method: "POST", body: ["anime_id": selected == 0 ? anime.id : selected, "episode": episode, "language": language])
+            let source: Playback = try await api.request("/play", method: "POST", body: ["anime_id": selected == 0 ? anime.id : selected, "episode": episode, "language": language, "provider": "auto", "quick": true, "subtitle_fallback": true])
             downloadCandidate = source
         } catch { self.error = error.localizedDescription }
     }

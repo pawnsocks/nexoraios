@@ -12,9 +12,14 @@ struct SettingsView: View {
     @State private var confirmDelete = false
     @State private var working = false
     @State private var cleared = false
+    @State private var confirmLogoutAll = false
     var body: some View {
         Form {
-            Section("Account") { Text(api.account?.username ?? "Nexora account") }
+            Section("Account") {
+                Text(api.account?.username ?? "Nexora account")
+                NavigationLink("Change password") { PasswordView(required: false) }
+                Button("Log out on all devices") { confirmLogoutAll = true }
+            }
             Section("Playback") {
                 Picker("Preferred language", selection: $language) {
                     Text("Deutsch").tag("Deutsch")
@@ -42,7 +47,7 @@ struct SettingsView: View {
                 LabeledContent("Version", value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0.0")
                 LabeledContent("Network", value: network.online ? "Online" : "Offline")
                 UpdateBanner()
-                Link(destination: URL(string: "https://discord.gg/BU5xTMu9QE")!) {
+                Link(destination: API.supportURL) {
                     Label("Support Discord", systemImage: "bubble.left.and.bubble.right")
                 }
                 Button(api.checkingUpdate ? "Checking…" : "Check for updates") { Task { await api.checkForUpdates(manual: true) } }.disabled(api.checkingUpdate)
@@ -53,6 +58,9 @@ struct SettingsView: View {
             }
             if let error { Text(error).foregroundStyle(.red) }
         }.navigationTitle("Settings").onAppear { downloads.refreshUsage() }
+        .confirmationDialog("Log out on all devices?", isPresented: $confirmLogoutAll, titleVisibility: .visible) {
+            Button("Log out everywhere", role: .destructive) { perform { try await api.logoutAll() } }
+        }
         .confirmationDialog("Delete your account and saved progress? This cannot be undone.", isPresented: $confirmDelete, titleVisibility: .visible) {
             Button("Delete account", role: .destructive) { perform { try await api.deleteAccount() } }
         }

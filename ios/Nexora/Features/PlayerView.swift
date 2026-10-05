@@ -118,10 +118,20 @@ import AVKit
         player.replaceCurrentItem(with: item)
         subtitles.attach(item, player: player)
     }
+    private var errorReported = Set<String>()
+    private func reportPlaybackError() async {
+        guard let api, !errorReported.contains(playback.session_id), let language = playback.source.language else { return }
+        errorReported.insert(playback.session_id)
+        struct Incident: Decodable { let error_id: String }
+        if let result: Incident = try? await api.request("/playback-error", method: "POST", body: ["anime_id": playback.anime_id, "episode": playback.episode_number, "language": language, "provider": "auto", "code": "media_error"], web: true) {
+            error = (error ?? "Playback failed.") + " · Error ID: " + result.error_id
+        }
+    }
     func repair() async {
         guard let api, !closed, !busy, !repairing, !finished else { return }
         guard repairAttempts < 3, let language = playback.source.language else {
-            error = "No replacement source is available. Your position has been kept."; return
+            error = "No replacement source is available. Your position has been kept."
+            await reportPlaybackError(); return
         }
         let current = player.currentTime().seconds
         let position = current.isFinite && current > 0 ? current : lastGoodTime
@@ -141,7 +151,7 @@ import AVKit
             load(replacement, resumeAt: position)
         } catch {
             busy = false; repairing = false
-            if !closed { self.error = "Automatic repair failed. Your position is kept. " + error.localizedDescription }
+            if !closed { self.error = "Automatic repair failed. Your position is kept. " + error.localizedDescription; await reportPlaybackError() }
         }
     }
     func seek(_ delta: Double) {
@@ -277,6 +287,7 @@ struct PlayerView: View {
                     Button("Reload source") { Task { await model.refresh() } }
                 } label: { Image(systemName: "ellipsis.circle").font(.title2) }
             }
+            LanguageOptionsButton(model: model)
             if model.busy { ProgressView("Loading episode…") }
             if let error = model.error { Text(error).font(.caption).foregroundStyle(.secondary) }
             if let item = currentDownload {
