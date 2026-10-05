@@ -29,6 +29,7 @@ struct RootView: View {
                 }.transition(.opacity)
             } else if api.token == nil { AuthView() }
             else if api.account?.must_change_password == true { NavigationStack { PasswordView(required: true) } }
+            else if api.needsLanguageChoice { MainLanguageView() }
             else { MainView() }
         }
         .task {

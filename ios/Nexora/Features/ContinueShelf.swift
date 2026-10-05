@@ -42,7 +42,7 @@ private struct ContinueCard: View {
         busy = true
         Task {
             defer { busy = false }
-            do { playback = try await api.request("/play", method: "POST", body: ["anime_id": anime.id, "episode": anime.episode ?? 1, "language": language, "provider": "auto", "quick": true, "subtitle_fallback": true]) }
+            do { playback = try await api.resolvePlayback(animeID: anime.id, episode: anime.episode ?? 1, preferred: language) }
             catch { self.error = error.localizedDescription }
         }
     }

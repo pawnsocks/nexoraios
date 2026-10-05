@@ -173,13 +173,13 @@ struct AnimeView: View {
     }
     func play(_ episode: Int) async {
         busy = true; error = nil; defer { busy = false }
-        do { playback = try await api.request("/play", method: "POST", body: ["anime_id": selected == 0 ? anime.id : selected, "episode": episode, "language": language, "provider": "auto", "quick": true, "subtitle_fallback": true]) }
+        do { playback = try await api.resolvePlayback(animeID: selected == 0 ? anime.id : selected, episode: episode, preferred: language) }
         catch { self.error = error.localizedDescription }
     }
     func download(_ episode: Int) async {
         busy = true; defer { busy = false }
         do {
-            let source: Playback = try await api.request("/play", method: "POST", body: ["anime_id": selected == 0 ? anime.id : selected, "episode": episode, "language": language, "provider": "auto", "quick": true, "subtitle_fallback": true])
+            let source: Playback = try await api.resolvePlayback(animeID: selected == 0 ? anime.id : selected, episode: episode, preferred: language)
             downloadCandidate = source
         } catch { self.error = error.localizedDescription }
     }

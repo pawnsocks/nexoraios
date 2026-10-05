@@ -14,6 +14,8 @@ swiftc Nexora/Core/DownloadPath.swift Tests/DownloadPathChecks.swift -o "$queue_
 "$queue_checks_dir/path-checks"
 swiftc Nexora/Models/Models.swift Tests/AccountContractChecks.swift -o "$queue_checks_dir/account-checks"
 "$queue_checks_dir/account-checks"
+swiftc Nexora/Core/PlaybackLanguages.swift Nexora/Core/DownloadFailure.swift Tests/MediaPolicyChecks.swift -o "$queue_checks_dir/media-checks"
+"$queue_checks_dir/media-checks"
 xcodegen generate
 xcodebuild -project Nexora.xcodeproj -scheme Nexora -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO MARKETING_VERSION="$release_version" CURRENT_PROJECT_VERSION="$build_number" build
 rm -rf build/package

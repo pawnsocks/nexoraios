@@ -28,6 +28,7 @@ struct SettingsView: View {
                     Text("English subtitles").tag("Eng-Sub")
                     Text("Original audio").tag("Original")
                 }
+                Button("Save main language to account") { perform { try await api.savePreference(["Deutsch", "Ger-Sub"].contains(language) ? "Deutsch" : "English") } }.disabled(working)
                 Toggle("Autoplay next episode", isOn: $autoNext)
                 Text("A preference does not guarantee availability for every episode.").font(.caption).foregroundStyle(.secondary)
             }

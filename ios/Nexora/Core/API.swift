@@ -3,11 +3,13 @@ import Foundation
 
 enum APIError: LocalizedError {
     case message(String)
-    var errorDescription: String? { if case let .message(text) = self { return text }; return nil }
+    case http(Int, String)
+    var errorDescription: String? { switch self { case .message(let text): return text; case .http(_, let text): return text } }
 }
 @MainActor final class API: ObservableObject {
     static let base = URL(string: "https://nexoraanime.duckdns.org")!
     static let supportURL = URL(string: "https://discord.com/invite/w6w4AxfUCT")!
+    @Published var needsLanguageChoice = false
     @Published var account: Account? {
         didSet {
             if let account, let data = try? JSONEncoder().encode(account) { UserDefaults.standard.set(data, forKey: "offline-account") }
@@ -63,6 +65,7 @@ enum APIError: LocalizedError {
             if manual { updateNotice = UpdateNotice(title: "Update check failed", message: error.localizedDescription, url: nil) }
         }
     }
+    private struct MediaAccess: Decodable { let url: String }
     private let session: URLSession = {
         let config = URLSessionConfiguration.ephemeral
         config.timeoutIntervalForRequest = 65
@@ -91,16 +94,59 @@ enum APIError: LocalizedError {
             if detail?["code"] as? String == "password_change_required" { account?.must_change_password = true }
             let message = (value?["error"] as? String) ?? (value?["detail"] as? String) ?? (detail?["message"] as? String)
             let reference = http.value(forHTTPHeaderField: "X-Nexora-Error-ID").map { " · Error ID: " + $0 } ?? ""
-            throw APIError.message((message ?? "Request failed (\(http.statusCode)). Please try again.") + reference)
+            throw APIError.http(http.statusCode, (message ?? "Request failed (\(http.statusCode)). Please try again.") + reference)
         }
-        return try JSONDecoder().decode(T.self, from: data)
+        let decoded = try JSONDecoder().decode(T.self, from: data)
+        if var playback = decoded as? Playback {
+            let grant: MediaAccess
+            do { grant = try await request("/media-access/" + playback.session_id, method: "POST", web: true) }
+            catch APIError.http(404, _) { throw APIError.message("Install the Nexora server media/download update before using this app version.") }
+            guard let url = URL(string: grant.url, relativeTo: Self.base)?.absoluteURL,
+                  url.scheme == "https", url.host == Self.base.host,
+                  url.path.hasPrefix("/api/playback/media/") else { throw APIError.message("The server returned an invalid media access link.") }
+            playback.source.url = url.absoluteString
+            return playback as! T
+        }
+        return decoded
     }
     func login(username: String, password: String) async throws {
         let result: LoginResponse = try await request("/auth/login", method: "POST", body: ["username": username, "password": password], authenticated: false)
         try Keychain.store(result.token)
         token = result.token; account = result.account
+        await loadPreferences()
+    }
+    private struct Preferences: Decodable { let main_language: String? }
+    func loadPreferences() async {
+        guard token != nil, account?.must_change_password != true else { return }
+        if let result: Preferences = try? await request("/preferences", web: true) {
+            needsLanguageChoice = result.main_language == nil
+            if let value = result.main_language { UserDefaults.standard.set(value, forKey: "preferredLanguage") }
+        }
+    }
+    func savePreference(_ value: String) async throws {
+        let result: Preferences = try await request("/preferences", method: "PUT", body: ["language": value], web: true)
+        UserDefaults.standard.set(result.main_language ?? value, forKey: "preferredLanguage")
+        needsLanguageChoice = false
+    }
+    func resolvePlayback(animeID: Int, episode: Int, preferred: String, excluding: Set<String> = []) async throws -> Playback {
+        var last: Error = APIError.message("No remaining language could be played.")
+        let owner = token
+        for language in PlaybackLanguages.order(preferred).filter({ !excluding.contains($0) }) {
+            try Task.checkCancellation()
+            guard token == owner else { throw APIError.message("Your login changed. Try again.") }
+            do {
+                let result: Playback = try await request("/play", method: "POST", body: ["anime_id": animeID, "episode": episode, "language": language, "provider": "auto", "quick": true, "subtitle_fallback": false])
+                guard result.anime_id == animeID, result.episode_number == episode, result.source.language == language else { throw APIError.message("The source did not match the requested episode and language.") }
+                return result
+            } catch APIError.http(let status, let message) {
+                guard PlaybackLanguages.canRetry(status) else { throw APIError.http(status, message) }
+                last = APIError.http(status, message)
+            }
+        }
+        throw last
     }
     func clearSession() {
+        needsLanguageChoice = false
         token = nil; account = nil; Keychain.clear()
         UserDefaults.standard.removeObject(forKey: "offline-account")
     }
@@ -116,6 +162,7 @@ enum APIError: LocalizedError {
         async let info: ReleaseInfo? = try? request("/version", authenticated: false)
         if token != nil { account = try? await request("/me") }
         release = await info
+        await loadPreferences()
     }
     func logout() async throws {
         let _: OK = try await request("/logout", method: "POST")

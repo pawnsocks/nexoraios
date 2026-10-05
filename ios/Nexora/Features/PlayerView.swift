@@ -174,7 +174,7 @@ import AVKit
         guard let api, !busy else { return }; busy = true; defer { busy = false }
         await save(); player.pause()
         do {
-            let result: Playback = try await api.request("/play", method: "POST", body: ["anime_id": playback.anime_id, "episode": playback.episode_number + delta, "language": playback.source.language ?? preferredLanguage])
+            let result: Playback = try await api.resolvePlayback(animeID: playback.anime_id, episode: playback.episode_number + delta, preferred: preferredLanguage)
             if !closed { load(result) }
         } catch { self.error = error.localizedDescription }
     }
@@ -223,6 +223,8 @@ struct PlayerView: View {
                             VStack(alignment: .leading, spacing: 18) {
                                 Text(model.playback.anime_title).font(.title2.bold())
                                 Text("Episode \(model.playback.episode_number)").foregroundStyle(.secondary)
+                                Text(PlaybackLanguages.label(model.playback.source.language ?? "Original")).font(.caption).foregroundStyle(.pink)
+                                if model.playback.source.language != language { Text("Your preferred track was unavailable. Playing an alternative language.").font(.caption).foregroundStyle(.secondary) }
                                 Button { immersive = true } label: { Label("Full screen", systemImage: "arrow.up.left.and.arrow.down.right") }
                                     .buttonStyle(.bordered)
                                 controls

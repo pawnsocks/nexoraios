@@ -34,11 +34,11 @@ struct Playback: Decodable, Identifiable {
     let anime_title: String
     let episode_number: Int
     let resume_seconds: Double?
-    let source: MediaSource
+    var source: MediaSource
     let has_prev: Bool
     let has_next: Bool
 }
-struct MediaSource: Decodable { let id: String?; let url: String; let content_type: String?; let language: String? }
+struct MediaSource: Decodable { let id: String?; var url: String; let content_type: String?; let language: String? }
 
 struct EpisodeStatus: Decodable, Identifiable { let id: Int; let watched: Bool; let position: Double; let duration: Double? }
 

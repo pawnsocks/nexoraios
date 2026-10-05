@@ -26,6 +26,8 @@ struct OfflineEpisode: Codable, Identifiable {
     @Published var usedBytes: Int64 = 0
     @Published var queuePaused = UserDefaults.standard.bool(forKey: "downloadQueuePaused")
     private weak var api: API?
+    private var retryCounts: [String: Int] = [:]
+    private var lastPlayback: [String: Playback] = [:]
     private var ready = false
     private var pumping = false
     @Published var preparingID: String?
@@ -97,7 +99,9 @@ struct OfflineEpisode: Codable, Identifiable {
         for (index, row) in zip(slots, rows) { items[index] = row }
         persist()
     }
-    func retry(_ item: OfflineEpisode) {
+    private func retryKey(_ item: OfflineEpisode) -> String { "\(item.owner):\(item.animeID ?? 0):\(item.episode):\(item.language)" }
+    func retry(_ item: OfflineEpisode, automatic: Bool = false) {
+        if !automatic { retryCounts[retryKey(item)] = 0 }
         guard item.owner == api?.offlineOwner, item.error != nil, item.animeID != nil,
               let index = items.firstIndex(where: { $0.id == item.id }) else { return }
         for session in sessions {
@@ -139,7 +143,14 @@ struct OfflineEpisode: Codable, Identifiable {
         preparingID = next.id
         do {
             // Resolve only when the episode reaches the front; signed URLs must stay fresh.
-            let playback: Playback = try await api.request("/play", method: "POST", body: ["anime_id": animeID, "episode": next.episode, "language": next.language, "provider": "auto", "quick": true])
+            let playback: Playback
+            let key = retryKey(next)
+            if (retryCounts[key] ?? 0) > 0, let previous = lastPlayback[key] {
+                playback = try await api.request("/play/\(previous.session_id)/repair", method: "POST", body: ["language": next.language, "excluded": [previous.source.id].compactMap { $0 }])
+            } else {
+                playback = try await api.request("/play", method: "POST", body: ["anime_id": animeID, "episode": next.episode, "language": next.language, "provider": "auto", "quick": true])
+            }
+            lastPlayback[key] = playback
             guard api.token == token, api.offlineOwner == owner, !queuePaused,
                   items.contains(where: { $0.id == next.id && $0.queued == true }) else { return }
             guard playback.anime_id == animeID, playback.episode_number == next.episode,
@@ -355,16 +366,49 @@ struct OfflineEpisode: Codable, Identifiable {
     }
     nonisolated func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
         let id = task.taskDescription
-        let failed = error != nil
+        let failure = error as NSError?
+        let status = (task.response as? HTTPURLResponse)?.statusCode
         Task { @MainActor in
-            if self.items.contains(where: { $0.id == id && (failed || $0.error != nil) }) { self.setQueuePaused(true) }
-            if failed && self.items.first(where: { $0.id == id })?.error == nil { self.fail(id, message: "Download failed. Remove it and try again while online.") }
-            else if !failed, let index = self.items.firstIndex(where: { $0.id == id && $0.error == nil }), self.items[index].location != nil {
-                self.items[index].queued = false; self.items[index].progress = 1; self.transferred.removeValue(forKey: self.items[index].id); self.persist(); self.refreshUsage()
+            guard let index = self.items.firstIndex(where: { $0.id == id }) else { return }
+            if let failure, self.items[index].error == nil {
+                let item = self.items[index]
+                let key = self.retryKey(item)
+                let domain = DownloadFailure.category(failure.domain)
+                self.fail(id, message: DownloadFailure.message(domain: domain, code: failure.code, status: status))
+                if DownloadFailure.retryable(domain: domain, code: failure.code, status: status),
+                   (self.retryCounts[key] ?? 0) < 1, self.api?.offlineOwner == item.owner, self.online {
+                    self.retryCounts[key, default: 0] += 1
+                    self.message = "Trying another source for the same episode and language…"
+                    if let saved = self.items.first(where: { $0.id == id }) { self.retry(saved, automatic: true) }
+                    return
+                }
+                self.setQueuePaused(true)
+                await self.reportDownloadFailure(item, domain: domain, code: failure.code, status: status)
+            } else if self.items[index].error != nil {
+                self.setQueuePaused(true)
+            } else if self.items[index].location != nil {
+                self.items[index].queued = false; self.items[index].progress = 1
+                self.retryCounts.removeValue(forKey: self.retryKey(self.items[index]))
+                self.transferred.removeValue(forKey: self.items[index].id); self.persist(); self.refreshUsage()
+            } else {
+                self.fail(id, message: "The transfer ended without a saved video. Tap Retry to request a new source.")
+                self.setQueuePaused(true)
             }
             Task { await self.pump() }
         }
     }
+    private func reportDownloadFailure(_ item: OfflineEpisode, domain: String, code: Int, status: Int?) async {
+        guard let api, api.offlineOwner == item.owner, let animeID = item.animeID else { return }
+        struct Report: Decodable { let error_id: String }
+        var body: [String: Any] = ["anime_id": animeID, "episode": item.episode, "language": item.language, "domain": domain, "code": max(-999999, min(999999, code))]
+        if let status, (400...599).contains(status) { body["http_status"] = status }
+        if let result: Report = try? await api.request("/download-error", method: "POST", body: body, web: true),
+           let index = items.firstIndex(where: { $0.id == item.id }) {
+            items[index].error = (items[index].error ?? "Download failed.") + " · Error ID: " + result.error_id
+            persist()
+        }
+    }
+
 }
 
 @MainActor final class DownloadAppDelegate: NSObject, UIApplicationDelegate {

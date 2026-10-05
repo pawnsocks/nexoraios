@@ -6,7 +6,7 @@ on:
       version:
         description: "Release version (e.g. 1.0.1)"
         required: true
-        default: "1.2.0"
+        default: "1.2.1"
   push:
     branches: [main]
     paths: ["ios/**", ".github/workflows/ios.yml"]
@@ -42,7 +42,7 @@ jobs:
           elif [[ "$TAG_NAME" == v* ]]; then
             export NEXORA_VERSION="${TAG_NAME#v}"
           else
-            export NEXORA_VERSION="1.2.0"
+            export NEXORA_VERSION="1.2.1"
           fi
           bash ios/scripts/build.sh
 
