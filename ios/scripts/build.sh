@@ -18,6 +18,8 @@ swiftc Nexora/Core/PlaybackLanguages.swift Nexora/Core/DownloadFailure.swift Tes
 "$queue_checks_dir/media-checks"
 swiftc Nexora/Core/DownloadEvents.swift Tests/DownloadCompletionChecks.swift -o "$queue_checks_dir/completion-checks"
 "$queue_checks_dir/completion-checks"
+swiftc Nexora/Core/DownloadResponse.swift Tests/DownloadResponseChecks.swift -o "$queue_checks_dir/response-checks"
+"$queue_checks_dir/response-checks"
 xcodegen generate
 xcodebuild -project Nexora.xcodeproj -scheme Nexora -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO MARKETING_VERSION="$release_version" CURRENT_PROJECT_VERSION="$build_number" build
 rm -rf build/package

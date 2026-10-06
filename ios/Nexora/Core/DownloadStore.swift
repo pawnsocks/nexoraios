@@ -381,7 +381,7 @@ struct OfflineEpisode: Codable, Identifiable {
     nonisolated func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
         let id = task.taskDescription
         let failure = error as NSError?
-        let status = (task.response as? HTTPURLResponse)?.statusCode
+        let status = DownloadResponse.httpStatus(for: task)
         events.enqueue {
             guard let index = self.items.firstIndex(where: { $0.id == id }) else { return }
             if let failure, self.items[index].error == nil {
