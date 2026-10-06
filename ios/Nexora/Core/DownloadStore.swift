@@ -14,6 +14,7 @@ struct OfflineEpisode: Codable, Identifiable {
     var animeID: Int?
     var wifiOnly: Bool?
     var location: String?
+    var finalizedMP4: Bool?
     var progress: Double = 0
     var error: String?
 }
@@ -28,6 +29,7 @@ struct OfflineEpisode: Codable, Identifiable {
     private weak var api: API?
     private var retryCounts: [String: Int] = [:]
     private var lastPlayback: [String: Playback] = [:]
+    nonisolated private let events = DownloadEvents()
     private var ready = false
     private var pumping = false
     @Published var preparingID: String?
@@ -110,7 +112,7 @@ struct OfflineEpisode: Codable, Identifiable {
         if let location = items[index].location { try? FileManager.default.removeItem(at: localURL(location)) }
         // A fresh identity prevents late callbacks from the old task corrupting this attempt.
         items[index].id = UUID().uuidString
-        items[index].location = nil
+        items[index].location = nil; items[index].finalizedMP4 = nil
         transferred.removeValue(forKey: item.id)
         items[index].error = nil; items[index].queued = true; items[index].progress = 0
         persist(); setQueuePaused(false); Task { await pump() }
@@ -241,12 +243,22 @@ struct OfflineEpisode: Codable, Identifiable {
             let cellHLSTasks = await cellularHLS.allTasks
             let cellFileTasks = await cellularFiles.allTasks
             let active = Set((hlsTasks + fileTasks + cellHLSTasks + cellFileTasks).compactMap(\.taskDescription))
-            for index in items.indices where items[index].progress < 1 && items[index].error == nil && !active.contains(items[index].id) {
-                if items[index].animeID != nil && items[index].wifiOnly != nil {
-                    // A task may have completed while the app was terminated; retry from a fresh source.
-                    if let location = items[index].location { try? FileManager.default.removeItem(at: localURL(location)) }
-                    items[index].location = nil; items[index].progress = 0; items[index].queued = true
-                } else { items[index].error = "Download interrupted. Remove it and try again." }
+            for index in items.indices {
+                let item = items[index]
+                let exists = item.location.map { FileManager.default.fileExists(atPath: localURL($0).path) } ?? false
+                switch DownloadRecovery.action(active: active.contains(item.id), queued: item.queued == true,
+                    completed: item.progress >= 1, failed: item.error != nil,
+                    savedFileExists: exists, finalizedMP4: item.finalizedMP4 == true) {
+                case .keep: break
+                case .finish:
+                    items[index].queued = false; items[index].progress = 1
+                case .interrupt:
+                    // Never redownload automatically after an app crash or lost background task.
+                    // Retain any partial asset until the user explicitly retries or removes it.
+                    items[index].queued = false
+                    items[index].error = "Download interrupted before completion was confirmed. Tap Retry to try again."
+                    setQueuePaused(true)
+                }
             }
             for task in hlsTasks + fileTasks + cellHLSTasks + cellFileTasks {
                 if let id = task.taskDescription, let item = items.first(where: { $0.id == id }), item.wifiOnly == nil {
@@ -296,7 +308,7 @@ struct OfflineEpisode: Codable, Identifiable {
         }
         items.removeAll { $0.id == item.id }; transferred.removeValue(forKey: item.id); persist(); refreshUsage(); Task { await pump() }
     }
-    private func record(_ id: String?, location: URL, systemManaged: Bool = false) {
+    private func record(_ id: String?, location: URL, systemManaged: Bool = false, finalizedMP4: Bool = false) {
         guard let index = items.firstIndex(where: { $0.id == id && $0.error == nil }) else {
             if let relative = DownloadPath.stored(location, home: URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true), systemManaged: systemManaged) {
                 try? FileManager.default.removeItem(at: localURL(relative))
@@ -310,28 +322,30 @@ struct OfflineEpisode: Codable, Identifiable {
         }
         items[index].queued = false
         items[index].location = relative
+        if finalizedMP4 { items[index].finalizedMP4 = true }
         persist(); refreshUsage()
         if usedBytes > limitBytes { fail(id, message: "File exceeds your storage limit.") }
     }
     nonisolated func urlSession(_ session: URLSession, assetDownloadTask: AVAssetDownloadTask, willDownloadTo location: URL) {
-        MainActor.assumeIsolated { self.record(assetDownloadTask.taskDescription, location: location, systemManaged: true) }
+        let id = assetDownloadTask.taskDescription
+        events.enqueue { self.record(id, location: location, systemManaged: true) }
     }
     nonisolated func urlSession(_ session: URLSession, assetDownloadTask: AVAssetDownloadTask, didFinishDownloadingTo location: URL) {
         let id = assetDownloadTask.taskDescription
-        MainActor.assumeIsolated { self.record(id, location: location, systemManaged: true) }
+        events.enqueue { self.record(id, location: location, systemManaged: true) }
     }
     nonisolated func urlSession(_ session: URLSession, assetDownloadTask: AVAssetDownloadTask, didLoad timeRange: CMTimeRange, totalTimeRangesLoaded loadedTimeRanges: [NSValue], timeRangeExpectedToLoad: CMTimeRange) {
         let total = timeRangeExpectedToLoad.duration.seconds
         let loaded = loadedTimeRanges.reduce(0.0) { $0 + $1.timeRangeValue.duration.seconds }
         let id = assetDownloadTask.taskDescription
-        Task { @MainActor in
+        events.enqueue {
             self.checkQuota(assetDownloadTask, received: assetDownloadTask.countOfBytesReceived)
             if total.isFinite, total > 0, let index = self.items.firstIndex(where: { $0.id == id }) { self.items[index].progress = min(0.99, max(0, loaded / total)) }
         }
     }
     nonisolated func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64, totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
         let id = downloadTask.taskDescription
-        Task { @MainActor in
+        events.enqueue {
             self.checkQuota(downloadTask, received: totalBytesWritten, expected: totalBytesExpectedToWrite)
             if totalBytesExpectedToWrite > 0, let index = self.items.firstIndex(where: { $0.id == id }) { self.items[index].progress = min(0.99, Double(totalBytesWritten) / Double(totalBytesExpectedToWrite)) }
         }
@@ -340,16 +354,16 @@ struct OfflineEpisode: Codable, Identifiable {
         let id = downloadTask.taskDescription
         let response = downloadTask.response as? HTTPURLResponse
         guard response?.statusCode == 200, response?.mimeType?.hasPrefix("video/") == true else {
-            Task { @MainActor in self.fail(id, message: "The server did not return a video. Try downloading again.") }; return
+            events.enqueue { self.fail(id, message: "The server did not return a video. Try downloading again.") }; return
         }
         // The temporary URL expires as soon as this delegate returns.
         let folder = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Offline")
         let destination = folder.appendingPathComponent(UUID().uuidString + ".mp4")
         do {
             try FileManager.default.moveItem(at: location, to: destination)
-            MainActor.assumeIsolated { self.record(id, location: destination) }
+            events.enqueue { self.record(id, location: destination, finalizedMP4: true) }
         } catch {
-            Task { @MainActor in self.fail(id, message: "Could not save the video. Check available storage.") }
+            events.enqueue { self.fail(id, message: "Could not save the video. Check available storage.") }
         }
     }
     private func fail(_ id: String?, message: String) {
@@ -359,7 +373,7 @@ struct OfflineEpisode: Codable, Identifiable {
     }
     nonisolated func urlSessionDidFinishEvents(forBackgroundURLSession session: URLSession) {
         let identifier = session.configuration.identifier
-        Task { @MainActor in
+        events.enqueue {
             guard let identifier else { return }
             self.backgroundCompletions.removeValue(forKey: identifier)?()
         }
@@ -368,7 +382,7 @@ struct OfflineEpisode: Codable, Identifiable {
         let id = task.taskDescription
         let failure = error as NSError?
         let status = (task.response as? HTTPURLResponse)?.statusCode
-        Task { @MainActor in
+        events.enqueue {
             guard let index = self.items.firstIndex(where: { $0.id == id }) else { return }
             if let failure, self.items[index].error == nil {
                 let item = self.items[index]
